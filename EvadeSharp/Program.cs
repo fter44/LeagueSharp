@@ -1,15 +1,18 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing.Printing;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using ClipperLib;
 using LeagueSharp;
+using LeagueSharp.Common;
 using SharpDX;
 using Color = System.Drawing.Color;
 using Path = System.Collections.Generic.List<ClipperLib.IntPoint>;
 using Paths = System.Collections.Generic.List<System.Collections.Generic.List<ClipperLib.IntPoint>>;
-
+using System.Text;
+//Not tested / missing: Galio, Swain, Nocturne, Talon, Viktor, Vi, Jayce, Lulu, Lissandra, Lucian
 namespace EvadeSharp
 {
     internal class Program
@@ -20,24 +23,32 @@ namespace EvadeSharp
             SKILLSHOT_CIRCLE,
             SKILLSHOT_CONE, /* actually it's a sector, doesnt support missilespeed yet*/
             SKILLSHOT_RING,
-
-            /* Not added yet */
             SKILLSHOT_TRIANGLE,
+            SKILLSHOT_NONE,
+            /* Not added yet */
             SKILLSHOT_ARC,
         }
+        /*Config*/
+        private static bool ConfigEvadingEnabled = true;
+        private static bool ConfigDrawingEnabled = true;
+        private static bool ConfigDodgeOnlyDangerous = false;
+        private static bool ConfigUseFlash = true;
+        private static bool ConfigUseDashes = true;
+        private static bool ConfigEvadeWalking = true;
 
+        /**/
         private const int buffer = 4; /* Buffer added to all the skillshots width */
         private const int ExtraW = 10; /* */
         private const int MinMove = 50;
         private const int Sides = 30; /* Number of sides for the circular polygons, the more the better */
-        private const int MissileBufferEnd = 0; /* Extra distance at the End of the missile*/
+        private const int MissileBufferEnd = 100; /* Extra distance at the End of the missile*/
         private const int MissileBufferFront = 100; /* Extra distance in Front of the missile*/
         private const int EvadeMissileFrontBuffer = 10;
         private const bool TestOnAllies = false;
-        private const bool ShowSkillShotData = false;
+        private const bool ShowSkillShotData = true;
         private const int SearchStep = 50;
         private const int DashEvadeBuffer = 100;
-        private const int SmoothEvadeBufferT = 200;
+        private const int SmoothEvadeBufferT = 400;
         private static readonly List<Vector2> DrawCircles = new List<Vector2>();
         private static readonly List<Vector3> DrawCircles2 = new List<Vector3>();
 
@@ -52,7 +63,6 @@ namespace EvadeSharp
         private static bool Evading;
         private static bool CantEvade;
         private static Vector2 EvadePoint;
-
         private static List<List<Vector2>> ClippedPolygon = new List<List<Vector2>>();
 
         private static void Main(string[] args)
@@ -60,11 +70,11 @@ namespace EvadeSharp
             Game.OnGameStart += OnGameStart;
             if (Game.Mode == GameMode.Running)
                 OnGameStart(new EventArgs());
-
         }
 
         private static void OnGameStart(EventArgs args)
         {
+            
             hitbox = (int)ObjectManager.Player.BoundingRadius;
             Game.OnGameUpdate += OnTick; /* Gets called every time the game updates*/
             Game.OnGameSendPacket += OnSendPacket; /* Gets called every time the client sends a packet */
@@ -75,241 +85,918 @@ namespace EvadeSharp
 
             Drawing.OnDraw += OnDraw;
 
-            Game.PrintChat("<font color=\"#\">Evade# Loaded");
+            Game.PrintChat("Evade# Loaded");
 
             /* Supported SkillShot list, probably this will change in the future */
 
+
+            
             SkillShot SK;
+            /* Aatrox */
+            if (Utils.IsChampionPresent("Aatrox", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("AatroxQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 600, 650, 2000, 150 + hitbox, 0, false, false, false, false, false));
 
-            /* Ashe */
+                /* E */
+                SkillShots.Add("AatroxE",
+                    new SkillShot(SkillShotType.SKILLSHOT_TRIANGLE, 250, 1075, 1250, 150, 0, true, false, false, false, false));
+            }
 
-            /* W Commented since its a bad idea to evade it always */
-            /*SkillShots.Add("Volley", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, 0, true, false));
+            /* Ahri */
+            if (Utils.IsChampionPresent("Ahri", TestOnAllies))
+            {
+                /* Q TODO: Take into account the acceleration. */
+                SkillShots.Add("AhriOrbofDeception",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1600, 100 + hitbox, 0, true, false, false, true, false));
 
-            SkillShots.Add("Volley1", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, (float)Math.PI / 180 * 9.583f, true, false));
-            SkillShots.Add("Volley2", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, (float)Math.PI / 180 * 2 * 9.583f, true, false));
-            SkillShots.Add("Volley3", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, (float)Math.PI / 180 * 3 * 9.583f, true, false));
+                SK = new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1600, 100 + hitbox, 0, true, false, false, true, false);
+                SK.LineMissileTrackUnits = true;
 
-            SkillShots.Add("Volley4", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 9.583f, true, false));
-            SkillShots.Add("Volley5", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 2 * 9.583f, true, false));
-            SkillShots.Add("Volley6", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 3 * 9.583f, true, false));
-            */
+                SkillShots.Add("AhriOrbReturn", SK);
+                MissileNameToSpellName.Add("AhriOrbReturn", "AhriOrbReturn");
+                MissileNameToSpellName.Add("AhriOrbMissile", "AhriOrbofDeception");
 
-            /* R */
-            SkillShots.Add("EnchantedCrystalArrow",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 25000, 1600, 130 + hitbox, 0, true, true, true));
-            //MissileNameToSpellName.Add("LuxLightBindingMis", "LuxLightBinding");
+                /* E */
+                SkillShots.Add("AhriSeduce",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1500, 60 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("AhriSeduceMissile", "AhriSeduce");
+            }
+
+            if (Utils.IsChampionPresent("Anivia", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("FlashFrost",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 850, 110 + hitbox, 0, false, true, true, true,
+                        false));
+                MissileNameToSpellName.Add("FlashFrostSpell", "FlashFrost");
+            }
 
             /* Annie */
+            if (Utils.IsChampionPresent("Annie", TestOnAllies))
+            {
+                /*W*/
+                SkillShots.Add("Incinerate",
+                    new SkillShot(SkillShotType.SKILLSHOT_CONE, 600, 1, int.MaxValue, 625, 50f * (float)Math.PI / 180, true, false, false, true, false));
 
-            /*W*/
-            SkillShots.Add("Incinerate",
-                new SkillShot(SkillShotType.SKILLSHOT_CONE, 600, 1, int.MaxValue, 625, 50f * (float)Math.PI / 180, true, false, false));
-
-            /*R TODO:Detection from fow?*/
-            SkillShots.Add("InfernalGuardian",
-                           new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 600, int.MaxValue, 251 + hitbox, 0, false, false, true));
+                /*R TODO:Detection from fow?*/
+                SkillShots.Add("InfernalGuardian",
+                               new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 600, int.MaxValue, 251 + hitbox, 0, false, false, true, true, true));
+            }
 
             /* Amumu */
-            /* Q */
-            SkillShots.Add("BandageToss",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 2000, 130 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("SadMummyBandageToss", "BandageToss");
+            if (Utils.IsChampionPresent("Amumu", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("BandageToss",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 2000, 130 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("SadMummyBandageToss", "BandageToss");
 
-            /* R */
-            SkillShots.Add("CurseoftheSadMummy",
-                new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 0, int.MaxValue, 550, 0, true, false, true));
+                /* R */
+                SkillShots.Add("CurseoftheSadMummy",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 0, int.MaxValue, 550, 0, true, false, true, true, true));
+            }
+
+            /* Ashe */
+            if (Utils.IsChampionPresent("Ashe", TestOnAllies))
+            {
+                /* W */
+                SkillShots.Add("Volley", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, 0, true, false, false, false, false));
+
+                SkillShots.Add("Volley1", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, (float)Math.PI / 180 * 9.583f, true, false, false, false, false));
+                SkillShots.Add("Volley2", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, (float)Math.PI / 180 * 2 * 9.583f, true, false, false, false, false));
+                SkillShots.Add("Volley3", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, (float)Math.PI / 180 * 3 * 9.583f, true, false, false, false, false));
+
+                SkillShots.Add("Volley4", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 9.583f, true, false, false, false, false));
+                SkillShots.Add("Volley5", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 2 * 9.583f, true, false, false, false, false));
+                SkillShots.Add("Volley6", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 3 * 9.583f, true, false, false, false, false));
+
+                /* R */
+                SkillShots.Add("EnchantedCrystalArrow",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 25000, 1600, 130 + hitbox, 0, true, true, true, true, true));
+                MissileNameToSpellName.Add("EnchantedCrystalArrow", "EnchantedCrystalArrow");
+            }
+            /* Brand */
+            if (Utils.IsChampionPresent("Brand", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("BrandBlaze",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 1600, 60 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("BrandBlazeMissile", "BrandBlaze");
+
+                /* W */
+                SkillShots.Add("BrandFissure",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 850, 900, int.MaxValue, 240 + hitbox, 0, false, false, false, true, false));
+            }
+            
+            /* Braum */
+            if (Utils.IsChampionPresent("Braum", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("BraumQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1050, 1700, 60 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("BraumQMissile", "BraumQ");
+
+                /* R */
+                SkillShots.Add("BraumRWrapper",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1400, 115 + hitbox, 0, true, false, true, true, false));
+                MissileNameToSpellName.Add("BraumRMissile", "BraumRWrapper");
+                
+            }
 
             /* Blitzcrank */
-            /* Q */
-            SkillShots.Add("RocketGrab",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1050, 1800, 70 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("RocketGrab", "RocketGrabMissile");
+            if (Utils.IsChampionPresent("Blitzcrank", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("RocketGrab",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1050, 1800, 70 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("RocketGrab", "RocketGrabMissile");
 
-            /* R */
-            SkillShots.Add("StaticField",
-                new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 0, int.MaxValue, 600, 0, true, false, true));
+                /* R */
+                SkillShots.Add("StaticField",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 0, int.MaxValue, 600, 0, true, false, true, false, false));
+            }
 
             /* Caitlyn */
-            /* Q */
-            SkillShots.Add("CaitlynPiltoverPeacemaker",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 625, 1300, 2200, 90 + hitbox, 0, true, false, false));
-            MissileNameToSpellName.Add("CaitlynPiltoverPeacemaker", "CaitlynPiltoverPeacemaker");
+            if (Utils.IsChampionPresent("Caitlyn", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("CaitlynPiltoverPeacemaker",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 625, 1300, 2200, 90 + hitbox, 0, true, false, false, true, false));
+                MissileNameToSpellName.Add("CaitlynPiltoverPeacemaker", "CaitlynPiltoverPeacemaker");
 
-            /* E */
-            SkillShots.Add("CaitlynEntrapment",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 125, 1000, 2000, 80 + hitbox, 0, true, true, false));
-            MissileNameToSpellName.Add("CaitlynEntrapment", "CaitlynEntrapment");
+                /* E */
+                SkillShots.Add("CaitlynEntrapment",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 125, 1000, 2000, 80 + hitbox, 0, true, true, false, false, false));
+                MissileNameToSpellName.Add("CaitlynEntrapment", "CaitlynEntrapment");
+            }
 
             /*Cassiopeia*/
-            /* Q */
-            SkillShots.Add("CassiopeiaNoxiousBlast",
-                new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 625, 850, int.MaxValue, 130 + hitbox, 0, false, false, false));
+            if (Utils.IsChampionPresent("Cassiopeia", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("CassiopeiaNoxiousBlast",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 600, 850, int.MaxValue, 150 + hitbox, 0, false, false, false, false, false));
 
-            /*R*/
-            SkillShots.Add("CassiopeiaPetrifyingGaze",
-                new SkillShot(SkillShotType.SKILLSHOT_CONE, 600, 1, int.MaxValue, 825, 80f * (float)Math.PI / 180, true, false, true));
+                /*R*/
+                SkillShots.Add("CassiopeiaPetrifyingGaze",
+                    new SkillShot(SkillShotType.SKILLSHOT_CONE, 600, 1, int.MaxValue, 825, 80f * (float)Math.PI / 180, true, false, true, true, true));
+            }
 
-            /*ChoGath*/
-            /* Q */
-            SkillShots.Add("Rupture",
-                new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1200, 950, int.MaxValue, 250 + hitbox, 0, false, false, true));
+            /*Chogath*/
+            if (Utils.IsChampionPresent("Chogath", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("Rupture",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1200, 950, int.MaxValue, 250 + hitbox, 0, false, false, true, true, false));
 
-            /*W*/
-            SkillShots.Add("FeralScream",
-                new SkillShot(SkillShotType.SKILLSHOT_CONE, 650, 1, int.MaxValue, 650, 2 * 28f * (float)Math.PI / 180, true, false, false));
+                /*W*/
+                SkillShots.Add("FeralScream",
+                    new SkillShot(SkillShotType.SKILLSHOT_CONE, 650, 1, int.MaxValue, 650, 2 * 28f * (float)Math.PI / 180, true, false, false, false, false));
+            }
+
+            /*Corki*/
+            if (Utils.IsChampionPresent("Corki", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("PhosphorusBomb",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 500, 825, 1125, 250 + hitbox, 0, false, false, false, true, false));
+                MissileNameToSpellName.Add("PhosphorusBombMissile", "PhosphorusBomb");
+
+                /*R*/
+                SkillShots.Add("MissileBarrage",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 200, 1300, 2000, 40 + hitbox, 0, true, true, false, false, false));
+                MissileNameToSpellName.Add("MissileBarrageMissile", "MissileBarrage");
+                MissileNameToSpellName.Add("MissileBarrageMissile2", "MissileBarrage");
+            }
+
+            /* Darius */
+            if (Utils.IsChampionPresent("Darius", TestOnAllies))
+            {
+                /*E*/
+                SkillShots.Add("DariusAxeGrabCone",
+                    new SkillShot(SkillShotType.SKILLSHOT_CONE, 600, 1, int.MaxValue, 550, 50f * (float)Math.PI / 180, true, false, true, true, false));
+            }
+
+            /* DrMundo*/
+            if (Utils.IsChampionPresent("DrMundo", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("InfectedCleaverMissileCast",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1050, 2000, 60 + hitbox, 0, true, true, false, true, false));
+                MissileNameToSpellName.Add("InfectedCleaverMissile", "InfectedCleaverMissileCast");
+            }
+
+            /* Draven*/
+            if (Utils.IsChampionPresent("Draven", TestOnAllies))
+            {
+                /* E */
+                SkillShots.Add("DravenDoubleShot",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 1400, 130 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("DravenDoubleShotMissile", "DravenDoubleShot");
+
+                /* R */
+                SkillShots.Add("DravenRCast",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 1000, 20000, 2000, 160 + hitbox, 0, true, false, true, true, false));
+
+                MissileNameToSpellName.Add("DravenR", "DravenRCast");
+            }
 
             /* Elise */
-            /* E */
-            SkillShots.Add("EliseHumanE",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 1450, 70 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("EliseHumanE", "EliseHumanE");
+            if (Utils.IsChampionPresent("Elise", TestOnAllies))
+            {
+                /* E */
+                SkillShots.Add("EliseHumanE",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 1450, 70 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("EliseHumanE", "EliseHumanE");
+            }
+
+            /* Evelynn */
+            if (Utils.IsChampionPresent("Evelynn", TestOnAllies))
+            {
+                /* R */
+                SkillShots.Add("EvelynnR",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 650, int.MaxValue, 350 + hitbox, 0, false, false, true, true, true));
+            }
 
             /* Ezreal */
-            /* Q */
-            SkillShots.Add("EzrealMysticShot",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 2000, 60 + hitbox, 0, true, true, false));
-            MissileNameToSpellName.Add("EzrealMysticShotMissile", "EzrealMysticShot");
+            if (Utils.IsChampionPresent("Ezreal", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("EzrealMysticShot",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 2000, 60 + hitbox, 0, true, true, false, false, false));
+                MissileNameToSpellName.Add("EzrealMysticShotMissile", "EzrealMysticShot");
 
-            /* W */
-            SkillShots.Add("EzrealEssenceFlux",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1050, 1600, 80 + hitbox, 0, true, false, false));
-            MissileNameToSpellName.Add("EzrealEssenceFluxMissile", "EzrealEssenceFlux");
+                /* W */
+                SkillShots.Add("EzrealEssenceFlux",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1050, 1600, 80 + hitbox, 0, true, false, false, false, false));
+                MissileNameToSpellName.Add("EzrealEssenceFluxMissile", "EzrealEssenceFlux");
 
-            /* R */
-            SkillShots.Add("EzrealTrueshotBarrage",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 1000, 20000, 2000, 160 + hitbox, 0, true, false, true));
-            MissileNameToSpellName.Add("EzrealTrueshotBarrage", "EzrealTrueshotBarrage");
+                /* R */
+                SkillShots.Add("EzrealTrueshotBarrage",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 1000, 20000, 2000, 160 + hitbox, 0, true, false, true, true, true));
+                MissileNameToSpellName.Add("EzrealTrueshotBarrage", "EzrealTrueshotBarrage");
+            }
+
+            /* Fizz */
+            if (Utils.IsChampionPresent("Fizz", TestOnAllies))
+            {
+                /* R */
+                SkillShots.Add("FizzMarinerDoom",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1300, 1350, 120 + hitbox, 0, false, true, false, false, false));
+                MissileNameToSpellName.Add("FizzMarinerDoomMissile", "FizzMarinerDoom");
+            }
+
+            /* Galio */
+            if (Utils.IsChampionPresent("Galio", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("GalioResoluteSmite",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 900, 1300, 200 + hitbox, 0, false, false, false, true, false));
+
+                /* E 
+               SkillShots.Add("EzrealMysticShot",
+                   new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1200, 120 + hitbox, 0, true, false, false, false, false));
+               MissileNameToSpellName.Add("EzrealMysticShotMissile", "EzrealMysticShot");*/
+
+                /* R */
+                SkillShots.Add("GalioIdolOfDurand",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 0, int.MaxValue, 550, 0, true, false, true, true, true));
+            }
+
+            /* Gragas */
+            if (Utils.IsChampionPresent("Gragas", TestOnAllies))
+            {
+                /* Q */
+                SK = new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 1100, 1300, 275 + hitbox, 0, false, false, false, false, false);
+                SK.ExtraDuration = 4200;
+                SkillShots.Add("GragasQ", SK);
+                MissileNameToSpellName.Add("GragasQMissile", "GragasQ");
+
+
+                /* E */
+                SkillShots.Add("GragasE",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 700, 1200, 50 + hitbox, 0, false, true, true, true, false));
+
+                /* R */
+                SkillShots.Add("GragasR",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 700, 1050, int.MaxValue, 375 + hitbox, 0, false, false, false, true, true));
+                /* TODO: Add detection from fow */
+                MissileNameToSpellName.Add("GragasR", "GragasR");//Not tested
+            }
+
+            /* Donger */
+            if (Utils.IsChampionPresent("Heimerdinger", TestOnAllies))
+            {
+                /* E */
+                SkillShots.Add("HeimerdingerE",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 925, 1200, 100 + hitbox, 0, false, false, false, false, false));
+
+                MissileNameToSpellName.Add("heimerdingerespell", "HeimerdingerE");
+            }
+
+            /* Irelia */
+            if (Utils.IsChampionPresent("Irelia", TestOnAllies))
+            {
+
+                SkillShots.Add("IreliaTranscendentBlades",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 1200, 1600, 0 + hitbox, 0, true, false, false, false,
+                        false));
+                MissileNameToSpellName.Add("IreliaTranscendentBladesSpell", "IreliaTranscendentBlades");
+            }
 
             /* Jarvan */
-            /* Q */
-            SkillShots.Add("JarvanIVDragonStrike",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1450, 70 + hitbox, 0, true, false, false));
+            if (Utils.IsChampionPresent("JarvanIV", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("JarvanIVDragonStrike",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1450, 70 + hitbox, 0, true, false, false, true, false));
 
-            /* E */
-            SkillShots.Add("JarvanIVDemacianStandard",
-                new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 500, 860, int.MaxValue, 175 + hitbox, 0, false, false, false));
+                /* E */
+                SkillShots.Add("JarvanIVDemacianStandard",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 500, 860, int.MaxValue, 175 + hitbox, 0, false, false, false, false, false));
+            }
 
             /* Jinx */
-            /* W TODO: Detect the animation from fow*/
-            SkillShots.Add("JinxW",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 600, 1500, 3300, 60 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("JinxWMissile", "JinxW");
+            if (Utils.IsChampionPresent("Jinx", TestOnAllies))
+            {
+                /* W TODO: Detect the animation from fow*/
+                SkillShots.Add("JinxW",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 600, 1500, 3300, 60 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("JinxWMissile", "JinxW");
 
-            /* R TODO: Take into account the speed change*/
-            SkillShots.Add("JinxRWrapper",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 600, 20000, 1700, 140 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("JinxR", "JinxRWrapper");
+                /* R TODO: Take into account the speed change*/
+                SkillShots.Add("JinxRWrapper",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 600, 20000, 1700, 140 + hitbox, 0, true, true, true, true, true));
+                MissileNameToSpellName.Add("JinxR", "JinxRWrapper");
+            }
+
+            /* Karma */
+            if (Utils.IsChampionPresent("Karma", TestOnAllies))
+            {
+
+                SkillShots.Add("KarmaQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 950, 1700, 60 + hitbox, 0, true, true, true, true,
+                        false));
+                MissileNameToSpellName.Add("KarmaQMissile", "Karma");
+                MissileNameToSpellName.Add("KarmaQMissileMantra", "Karma");//add the aoe circle?
+            }
 
             /*Karthus*/
-            /* Q */
-            SkillShots.Add("LayWaste",
-                new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 625, 875, int.MaxValue, 160 + hitbox, 0, false, false, false));
+            if (Utils.IsChampionPresent("Karthus", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("LayWaste",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 625, 875, int.MaxValue, 160 + hitbox, 0, false, false, false, false, false));
+            }
 
+            /* Kassadin */
+            if (Utils.IsChampionPresent("Kassadin", TestOnAllies))
+            {
+                /*E*/
+                SkillShots.Add("ForcePulse",
+                    new SkillShot(SkillShotType.SKILLSHOT_CONE, 700, 1, int.MaxValue, 650, 2 * 39f * (float)Math.PI / 180, true, false, false, false, false));
+
+                /*R*/
+                SkillShots.Add("RiftWalk",
+                               new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 700, int.MaxValue, 270 + hitbox, 0, false, false, false, false, false));
+            }
+
+            /* Kennen */
+            if (Utils.IsChampionPresent("Kennen", TestOnAllies))
+            {
+
+                SkillShots.Add("KennenShurikenHurlMissile1",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 125, 1050, 1700, 50 + hitbox, 0, true, true, false, false,
+                        false));
+                MissileNameToSpellName.Add("KennenShurikenHurlMissile1", "KennenShurikenHurlMissile1");
+            }
+
+            /* Khazix */
+            if (Utils.IsChampionPresent("Khazix", TestOnAllies))//TODO:Check
+            {
+                /*W*/
+                SkillShots.Add("KhazixW",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1025, 1700, 70 + hitbox, 0, true, true, false, false,
+                        false));
+                MissileNameToSpellName.Add("KhazixWMissile", "KhazixW");
+
+                /*W*/
+                SkillShots.Add("khazixwlong",
+                   new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1025, 1700, 70 + hitbox, 0, true, true, false, false,
+                        false));
+
+                /*E*/
+                SkillShots.Add("KhazixE",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 600, 1500, 300 + hitbox, 0, false, false, false, false,
+                        false));
+
+                MissileNameToSpellName.Add("KhazixEInvisMissile", "KhazixE");
+            }
+
+            /* KogMaw */
+            if (Utils.IsChampionPresent("KogMaw", TestOnAllies))
+            {
+                /*Q*/
+                SkillShots.Add("KogMawQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1650, 70 + hitbox, 0, true, true, false, false,
+                        false));
+                MissileNameToSpellName.Add("KogMawQMis", "KogMawQ");
+
+                /*E*/
+                SkillShots.Add("KogMawVoidOoze",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1500, 1400, 120 + hitbox, 0, true, false, false, false,
+                        false));
+                MissileNameToSpellName.Add("KogMawVoidOozeMissile", "KogMawVoidOoze");
+
+                /*R*/
+                SkillShots.Add("KogMawLivingArtillery",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1000, 1800, int.MaxValue, 225 + hitbox, 0, false, false, false, false, false));
+            }
+
+            /* Leblanc */
+            if (Utils.IsChampionPresent("Leblanc", TestOnAllies))
+            {
+                /* W */
+                SkillShots.Add("LeblancSlide",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 0, 600, 1500, 220 + hitbox, 0, false, false, false, true, false));
+
+                /* W */
+                SkillShots.Add("LeblancSlideM",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 0, 600, 1500, 220 + hitbox, 0, false, false, false, true, false));
+
+                /* E */
+                SkillShots.Add("LeblancSoulShackle",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 950, 1600, 70 + hitbox, 0, true, true, true, true, false));
+                /* E */
+                SkillShots.Add("LeblancSoulShackleM",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 950, 1600, 70 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("LeblancSoulShackle", "LeblancSoulShackle");
+                MissileNameToSpellName.Add("LeblancSoulShackleM", "LeblancSoulShackleM");
+            }
+
+            /* LeeSin */
+            if (Utils.IsChampionPresent("LeeSin", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("BlindMonkQOne",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 1800, 60 + hitbox, 0, true, true, true, true, false));
+
+                MissileNameToSpellName.Add("BlindMonkQOne", "BlindMonkQOne");
+            }
 
             /* Leona */
-            /* E */
-            SkillShots.Add("LeonaZenithBlade",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 900, 2000, 90 + hitbox, 0, true, false, true));
-            MissileNameToSpellName.Add("LeonaZenithBladeMissile", "LeonaZenithBlade");
+            if (Utils.IsChampionPresent("Leona", TestOnAllies))
+            {
+                /* E */
+                SkillShots.Add("LeonaZenithBlade",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 900, 2000, 90 + hitbox, 0, true, false, true, true, false));
+                MissileNameToSpellName.Add("LeonaZenithBladeMissile", "LeonaZenithBlade");
 
-            /* R TODO: fow detection*/
-            SkillShots.Add("LeonaSolarFlare",
-                new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1000, 1200, int.MaxValue, 120 + hitbox, 0, false, false, true));
+                /* R TODO: fow detection*/
+                SkillShots.Add("LeonaSolarFlare",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1000, 1200, int.MaxValue, 120 + hitbox, 0, false, false, true, true, true));
+            }
 
             /* Lux */
-            /* Q */
-            SkillShots.Add("LuxLightBinding",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1300, 1200, 70 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("LuxLightBindingMis", "LuxLightBinding");
+            if (Utils.IsChampionPresent("Lux", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("LuxLightBinding",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1300, 1200, 70 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("LuxLightBindingMis", "LuxLightBinding");
 
-            /* E Not dangerous enough to have it enabled by default, TODO: Delete when the object dissapears*/
-            SK = new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 1100, 1300, 275 + hitbox, 0, false, false, false);
-            SK.ExtraDuration = 5000;
-            SkillShots.Add("LuxLightStrikeKugel", SK);
-            //MissileNameToSpellName.Add("LuxLightBindingMis", "LuxLightBinding");
+                /* E Not dangerous enough to have it enabled by default, TODO: Delete when the object dissapears*/
+                SK = new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 1100, 1300, 275 + hitbox, 0, false, false, false, false, false);
+                SK.ExtraDuration = 5000;
+                SkillShots.Add("LuxLightStrikeKugel", SK);
+                //MissileNameToSpellName.Add("LuxLightBindingMis", "LuxLightBinding");
 
-            /* R */
-            SkillShots.Add("LuxMaliceCannon",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 1350, 3500, int.MaxValue, 190 + hitbox, 0, true, false, true));
-            /* TODO: Add detection from fow */
+                /* R */
+                SkillShots.Add("LuxMaliceCannon",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 1350, 3500, int.MaxValue, 190 + hitbox, 0, true, false, true, true, false));
+                /* TODO: Add detection from fow */
+            }
 
             /* Malphite */
-            /* R TODO: fow detection*/
-            SkillShots.Add("UFSlash",
-                new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 1000, 1500, 270 + hitbox, 0, false, false, true));
+            if (Utils.IsChampionPresent("Malphite", TestOnAllies))
+            {
+                /* R TODO: fow detection*/
+                SkillShots.Add("UFSlash",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 1000, 1500, 270 + hitbox, 0, false, false, true, true, true));
+            }
+
+            /* Malzahar */
+            if (Utils.IsChampionPresent("Malzahar", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("AlZaharCalloftheVoidS1", new SkillShot(SkillShotType.SKILLSHOT_LINE, 700, 700, 1600, 85 + hitbox, 0, true, false, true, true, false));
+                SkillShots.Add("AlZaharCalloftheVoidS2", new SkillShot(SkillShotType.SKILLSHOT_LINE, 700, 700, 1600, 85 + hitbox, 0, true, false, true, true, false));
+
+                SkillShots.Add("AlZaharCalloftheVoid", new SkillShot(SkillShotType.SKILLSHOT_NONE, 600, 90, 1600, 85 + hitbox, 0, false, false, true, true, false));
+            }
+
+            /* Mordekaiser */
+            if (Utils.IsChampionPresent("Mordekaiser", TestOnAllies))
+            {
+                /*E*/
+                SkillShots.Add("MordekaiserSyphonOfDestruction",
+                    new SkillShot(SkillShotType.SKILLSHOT_CONE, 600, 1, int.MaxValue, 700, 50f * (float)Math.PI / 180, true,
+                        false, false, true, false));
+            }
 
             /* Morgana */
-            /* Q */
-            SkillShots.Add("DarkBindingMissile",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1300, 1200, 70 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("DarkBindingMissile", "DarkBindingMissile");
+            if (Utils.IsChampionPresent("Morgana", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("DarkBindingMissile",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1300, 1200, 70 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("DarkBindingMissile", "DarkBindingMissile");
+            }
 
             /* Nidalee */
-            /* Q */
-            SkillShots.Add("JavelinToss",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 125, 1500, 1300, 60 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("JavelinToss", "JavelinToss");
+            if (Utils.IsChampionPresent("Nidalee", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("JavelinToss",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 125, 1500, 1300, 60 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("JavelinToss", "JavelinToss");
+            }
 
             /* Nautilus */
-            /* Q */
-            SkillShots.Add("NautilusAnchorDrag",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 2000, 90 + hitbox, 0, true, true, true));
-            MissileNameToSpellName.Add("NautilusAnchorDragMissile", "NautilusAnchorDrag");
+            if (Utils.IsChampionPresent("Nautilus", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("NautilusAnchorDrag",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 2000, 90 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("NautilusAnchorDragMissile", "NautilusAnchorDrag");
+            }
+
+            /* Olaf */
+            if (Utils.IsChampionPresent("Olaf", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("OlafAxeThrowCast",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1600, 90 + hitbox, 0, false, true, true, true, false));
+                MissileNameToSpellName.Add("olafaxethrow", "OlafAxeThrowCast");
+            }
 
             /* Orianna TODO: Add E and R*/
-            /* Q */
-            SkillShots.Add("NotRealNameOrianna",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 1500, 1200, 80 + hitbox, 0, false, false, false));//Not real spell name since the delay is 0 and the missile gives us the start position.
-            MissileNameToSpellName.Add("orianaizuna", "NotRealNameOrianna");
+            if (Utils.IsChampionPresent("Orianna", TestOnAllies) || Utils.IsChampionPresent("OriannaNoBall", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("NotRealNameOrianna",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 1500, 1200, 80 + hitbox, 0, false, false, false, false, false));//Not real spell name since the delay is 0 and the missile gives us the start position.
+                MissileNameToSpellName.Add("orianaizuna", "NotRealNameOrianna");
+
+                /* W */
+                SK = new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 1, int.MaxValue, 255 + hitbox, 0, true, false, false, false, false);
+                SK.FromObject = "TheDoomBall";
+                SkillShots.Add("OrianaDissonanceCommand", SK);
+
+                /* R */
+                SK = new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 700, 1, int.MaxValue, 410 + hitbox, 0, true, false, true, true, true);
+                SK.FromObject = "TheDoomBall";
+                SkillShots.Add("OrianaDetonateCommand", SK);
+            }
+
+            /*Quinn*/
+            if (Utils.IsChampionPresent("Quinn", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("QuinnQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1050, 1550, 80 + hitbox, 0, true, true, false, true, false));
+                MissileNameToSpellName.Add("QuinnQMissile", "QuinnQ");
+            }
+
+            /* Rengar TODO, check*/
+            if (Utils.IsChampionPresent("Rengar", TestOnAllies))
+            {
+                /* E */
+                SkillShots.Add("RengarE",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1500, 70 + hitbox, 0, true, true, false, true, false));
+                MissileNameToSpellName.Add("RengarEFinal", "RengarE");
+                MissileNameToSpellName.Add("RengarEFinalMAX", "RengarE");
+            }
 
             /*Riven*/
-            /*R*/
-            SkillShots.Add("rivenizunablade",
-                new SkillShot(SkillShotType.SKILLSHOT_CONE, 500, 1, 2200, 1100, 45f * (float)Math.PI / 180, true, false, true));
+            if (Utils.IsChampionPresent("Riven", TestOnAllies))
+            {
+                /*R*/
+                SkillShots.Add("rivenizunablade",
+                    new SkillShot(SkillShotType.SKILLSHOT_CONE, 500, 1, 2200, 1100, 45f * (float)Math.PI / 180, true, false, true, true, false));
+            }
+
+            /* Rumble */
+            if (Utils.IsChampionPresent("Rumble", TestOnAllies))
+            {
+                /* E */
+                SkillShots.Add("RumbleGrenade",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 950, 2000, 60 + hitbox, 0, true, true, false, true, false));
+                MissileNameToSpellName.Add("RumbleGrenadeMissile", "RumbleGrenade");
+            }
 
             /* Sivir */
-            /* Q */
-            SkillShots.Add("SivirQ",
-                new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1175, 1350, 90 + hitbox, 0, true, false, true));
+            if (Utils.IsChampionPresent("Sivir", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("SivirQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1175, 1350, 90 + hitbox, 0, true, false, true, true, false));
 
-            SK = new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1175, 1350, 100 + hitbox, 0, true, false, true);
-            SK.LineMissileTrackUnits = true;
+                SK = new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1175, 1350, 100 + hitbox, 0, true, false, true, false, false);
+                SK.LineMissileTrackUnits = true;
 
-            SkillShots.Add("SivirQReturn", SK);
-            MissileNameToSpellName.Add("SivirQMissileReturn", "SivirQReturn");
-            MissileNameToSpellName.Add("SivirQMissile", "SivirQ");
+                SkillShots.Add("SivirQReturn", SK);
+                MissileNameToSpellName.Add("SivirQMissileReturn", "SivirQReturn");
+                MissileNameToSpellName.Add("SivirQMissile", "SivirQ");
+            }
+
+            /*Skarner*/
+            if (Utils.IsChampionPresent("Skarner", TestOnAllies))
+            {
+                SkillShots.Add("SkarnerFracture", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1500, 70 + hitbox, 0, true, false, false, false, false));
+                MissileNameToSpellName.Add("SkarnerFractureMissile", "SkarnerFracture");
+
+            }
 
             /* Sona */
-            SkillShots.Add("SonaCrescendo",
-                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 2400, 140 + hitbox, 0, true, false, true));
-            MissileNameToSpellName.Add("SonaCrescendo", "SonaCrescendo");
+            if (Utils.IsChampionPresent("Sona", TestOnAllies))
+            {
+                SkillShots.Add("SonaCrescendo",
+                        new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 2400, 140 + hitbox, 0, true, false, true, true, true));
+                MissileNameToSpellName.Add("SonaCrescendo", "SonaCrescendo");
+            }
 
-            /*Twisted Fate*/
-            SkillShots.Add("WildCards", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1450, 1000, 40 + hitbox, 0, true, false, false));
+            /* Syndra */
+            if (Utils.IsChampionPresent("Syndra", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("SyndraQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 600, 800, int.MaxValue, 150 + hitbox, 0, false, false,
+                        false, false, false));
 
-            SkillShots.Add("WildCards1", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1450, 1000, 40 + hitbox, 28 * (float)Math.PI / 180, true, false, false));
-            SkillShots.Add("WildCards2", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1450, 1000, 40 + hitbox, -28 * (float)Math.PI / 180, true, false, false));
-            MissileNameToSpellName.Add("SealFateMissile", "SonaCrescendo");
+                /* W */
+                SkillShots.Add("syndrawcast",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 900, 950, int.MaxValue, 210 + hitbox, 0, false, false,
+                        false, false, false));
+
+                /* E TODO*/
+            }
+
+            /*Shen*/
+            if (Utils.IsChampionPresent("Shen", TestOnAllies))
+            {
+                SkillShots.Add("ShenShadowDash", new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 650, 1600, 50 + hitbox, 0, false, false, false, false, false));
+            }
+
+            /*Shyvana*/
+            if (Utils.IsChampionPresent("Shyvana", TestOnAllies))
+            {
+                SkillShots.Add("ShyvanaFireball", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 950, 1700, 60 + hitbox, 0, true, false, false, false, false));
+                MissileNameToSpellName.Add("ShyvanaFireballMissile", "ShyvanaFireball");
+
+                SkillShots.Add("ShyvanaTransformCast", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1000, 1500, 150 + hitbox, 0, true, false, false, false, false));
+            }
+
+            /* Swain TODO: CHECK*/
+            if (Utils.IsChampionPresent("Swain", TestOnAllies))
+            {
+                SkillShots.Add("SwainShadowGrasp",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 900, 900, int.MaxValue, 180 + hitbox, 0, false, false, true, true, false));
+            }
+
+            /*Tryndamere*/
+            if (Utils.IsChampionPresent("Tryndamere", TestOnAllies))
+            {
+                SkillShots.Add("slashCast", new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 660, 1300, 93 + hitbox, 0, false, false, false, false, false));
+            }
+
+            /* Tristana */
+            if (Utils.IsChampionPresent("Tristana", TestOnAllies))
+            {
+                /* W*/
+                SkillShots.Add("RocketJump",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 500, 900, 1500, 270 + hitbox, 0, false, false, true, false, false));
+            }
+
+            /* Twitch */
+            if (Utils.IsChampionPresent("Twitch", TestOnAllies))
+            {
+                /* W*/
+                SkillShots.Add("TwitchVenomCask",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 900, 1400, 275 + hitbox, 0, false, false, true, false, false));
+                MissileNameToSpellName.Add("TwitchVenomCaskMissile", "TwitchVenomCask");
+            }
+
+            /* Twisted Fate */
+            if (Utils.IsChampionPresent("TwistedFate", TestOnAllies))
+            {
+                SkillShots.Add("WildCards", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1450, 1000, 40 + hitbox, 0, true, false, false, false, false));
+
+                SkillShots.Add("WildCards1", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1450, 1000, 40 + hitbox, 28 * (float)Math.PI / 180, true, false, false, false, false));
+                SkillShots.Add("WildCards2", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1450, 1000, 40 + hitbox, -28 * (float)Math.PI / 180, true, false, false, false, false));
+                MissileNameToSpellName.Add("SealFateMissile", "WildCards");
+            }
+
+            /* Thresh */
+            if (Utils.IsChampionPresent("Thresh", TestOnAllies))
+            {
+                SkillShots.Add("ThreshQ", new SkillShot(SkillShotType.SKILLSHOT_LINE, 500, 1100, 1900, 70 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("ThreshQMissile", "ThreshQ");
+
+                SkillShots.Add("ThreshE", new SkillShot(SkillShotType.SKILLSHOT_LINE, 125, 1075, 2000, 110 + hitbox, 0, true, false, true, true, false));
+            }
+
+            /* Urgot*/
+            if (Utils.IsChampionPresent("Urgot", TestOnAllies))
+            {
+                /* Q */
+                SkillShots.Add("UrgotHeatseekingLineMissile", new SkillShot(SkillShotType.SKILLSHOT_LINE, 125, 1000, 1600, 60 + hitbox, 0, true, true, false, false, false));
+                MissileNameToSpellName.Add("UrgotHeatseekingLineMissile", "UrgotHeatseekingLineMissile");
+
+                /* W */
+                SkillShots.Add("UrgotPlasmaGrenade",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 1100, 1500, 210 + hitbox, 0, false, false, false, false, false));
+                MissileNameToSpellName.Add("UrgotPlasmaGrenadeBoom", "UrgotPlasmaGrenade");
+            }
+
+            /*Varus*/
+            if (Utils.IsChampionPresent("Varus", TestOnAllies))
+            {
+
+                /*Q*/
+                SkillShots.Add("VarusQ!",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1800, 1900, 70 + hitbox, 0, true, false, true,
+                        true, false));
+                MissileNameToSpellName.Add("VarusQMissile", "VarusQ!");
+                /* E*/
+                SkillShots.Add("VarusE",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1000, 925, 1500, 235 + hitbox, 0, false, false, false, false, false));
+                MissileNameToSpellName.Add("VarusEMissile", "VarusE");
+
+                /*R*/
+                SkillShots.Add("VarusR",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1950, 100 + hitbox, 0, true, true, true,
+                        true, true));
+                MissileNameToSpellName.Add("VarusRMissile", "VarusR");
+
+            }
+
+            /*Velkoz*/
+            if (Utils.IsChampionPresent("Velkoz", TestOnAllies))
+            {
+
+                /*Q*/
+                SkillShots.Add("VelkozQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 1300, 50 + hitbox, 0, true, true, true,
+                        false, false));
+                MissileNameToSpellName.Add("VelkozQMissile", "VelkozQ");
+
+                SkillShots.Add("VelkozQ21",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 900, 2100, 45 + hitbox, 0, true, true, true,
+                        true, false));
+                SkillShots.Add("VelkozQ22",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 900, 2100, 45 + hitbox, 0, true, true, true,
+                        true, false));
+                //MissileNameToSpellName.Add("VelkozQMissileSplit", "VelkozQ2");
+
+
+                /* W*/
+                SK = new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1700, 65 + hitbox, 0, true, false, false, false, false);
+                SkillShots.Add("VelkozW",SK);
+                MissileNameToSpellName.Add("VelkozWMissile", "VelkozW");
+
+                /*E*/
+                SkillShots.Add("VelkozE",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 250, 800, 1500, 225, 0, false, false, true,
+                        true, false));
+                MissileNameToSpellName.Add("VarusRMissile", "VarusR");
+
+            }
+
             /* Veigar */
-            /*W*/
-            SkillShots.Add("VeigarDarkMatter",
-        new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1350, 900, int.MaxValue, 225 + hitbox, 0, false, false, true));
+            if (Utils.IsChampionPresent("Veigar", TestOnAllies))
+            {
+                /*W*/
+                SkillShots.Add("VeigarDarkMatter",
+            new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1350, 900, int.MaxValue, 225 + hitbox, 0, false, false, true, false, false));
 
-            /*E*/
-            SK = new SkillShot(SkillShotType.SKILLSHOT_RING, 250, 600, int.MaxValue, 350, 0, false, false, true);
-            SK.ExtraDuration = 3000;
-            SkillShots.Add("VeigarEventHorizon", SK);
+                /*E*/
+                SK = new SkillShot(SkillShotType.SKILLSHOT_RING, 250, 600, int.MaxValue, 350, 0, false, false, true, false, false);
+                SK.ExtraDuration = 3000;
+                SkillShots.Add("VeigarEventHorizon", SK);
+            }
 
-            foreach (var skillshot in SkillShots)
-                SkillShots[skillshot.Key].name = skillshot.Key;
+            /* Vi TODO*/
+            if (Utils.IsChampionPresent("Vi", TestOnAllies))
+            {
+                /*SkillShots.Add("ViQMissile",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1150, 1500, 90 + hitbox, 0, true, false, false, false,
+                        false));*/
+            }
+
+            /* Xerath */
+            if (Utils.IsChampionPresent("Xerath", TestOnAllies))
+            {
+
+                SkillShots.Add("xeratharcanopulse2",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 600, 1600, int.MaxValue, 80 + hitbox, 0,
+                        true, false, false, false,
+                        false));
+
+                SkillShots.Add("XerathArcaneBarrage2",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 900, 1000, int.MaxValue, 200 + hitbox, 0,
+                        false, false, false, false,
+                        false));
+
+                SkillShots.Add("XerathMageSpear", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1100, 1400, 60 + hitbox, 0, true, true, true, true, false));
+                MissileNameToSpellName.Add("XerathMageSpearMissile", "XerathMageSpear");
+
+                SkillShots.Add("xerathrmissilewrapper",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 600, 5600, int.MaxValue, 110 + hitbox, 0,
+                        false, false, false, false,
+                        false));
+            }
+
+            /* Yasuo */
+            if (Utils.IsChampionPresent("Yasuo", TestOnAllies))
+            {
+
+                SkillShots.Add("yasuoq",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 500, 520, int.MaxValue, 15 + hitbox, (float)Math.PI, true, false, false, false,
+                        false));//not sure why its rotated :<
+
+                SkillShots.Add("yasuoq2",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 500, 520, int.MaxValue, 15 + hitbox, (float)Math.PI, true, false, false, false,
+                        false));//not sure why its rotated :<
+
+                SkillShots.Add("yasuoq3w",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1150, 1500, 90 + hitbox, 0, true, false, false, false,
+                        false));
+            }
+
+            /*Zac*/
+            if (Utils.IsChampionPresent("Zac", TestOnAllies))
+            {
+                SkillShots.Add("ZacQ",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 500, 550, int.MaxValue, 120 + hitbox, 0, true, false, false,
+                        false, false));
+            }
+
+            /*Zed*/
+            if (Utils.IsChampionPresent("Zed", TestOnAllies))
+            {
+                SkillShots.Add("ZedShuriken",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 925, 1700, 50 + hitbox, 0, true, false, false,
+                        false, false));
+                MissileNameToSpellName.Add("zedshurikenmisone", "ZedShuriken");
+                MissileNameToSpellName.Add("zedshurikenmistwo", "ZedShuriken");
+            }
+
+            /*Zyra*/
+            if (Utils.IsChampionPresent("Zyra", TestOnAllies))
+            {
+                /* Q*/
+                SkillShots.Add("ZyraQFissure",
+                    new SkillShot(SkillShotType.SKILLSHOT_CIRCLE, 1000, 800, int.MaxValue, 220 + hitbox, 0, false, false, false, false, false));
+                MissileNameToSpellName.Add("ZyraQFissure", "ZyraQFissure");
+
+                /* E */
+                SkillShots.Add("ZyraGraspingRoots",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1150, 1150, 70 + hitbox, 0, true, false, true,
+                        false, false));
+                MissileNameToSpellName.Add("ZyraGraspingRoots", "ZyraGraspingRoots");
+
+                /* Passive */
+                SkillShots.Add("zyrapassivedeathmanager",
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 500, 1474, 2000, 60 + hitbox, 0, true, false, false,
+                        false, false));
+                MissileNameToSpellName.Add("zyrapassivedeathmanager", "zyrapassivedeathmanager");
+            }
 
             /* Dash data */
-            //Game.OnWndProc += onwndmsg;
             Dashes.Add("Vayne",
                 new Dash(250, 900, 300, true, SpellSlot.Q, false, true, false, false, false, false, false));
             Dashes.Add("Ezreal",
                 new Dash(250, float.MaxValue, 475, false, SpellSlot.E, true, true, false, false, false, false, false));
+
+            /*Add flash as dash if available*/
+            foreach (var spell in ObjectManager.Player.SummonerSpellbook.Spells)
+            {
+                if (spell.Name == "SummonerFlash")
+                {
+                    Dashes.Add("Flash", new Dash(0, float.MaxValue, 400, false, spell.Slot, true, true, false, false, false, false, false));
+                }
+            }
+
+            foreach (var skillshot in SkillShots)
+                SkillShots[skillshot.Key].name = skillshot.Key;
+
+            foreach (var dash in Dashes)
+                Dashes[dash.Key].Name = dash.Key;
+
+            Game.OnWndProc += onwndmsg;
         }
 
         //* New skillshots detection: *//
@@ -325,6 +1012,19 @@ namespace EvadeSharp
                 {
                     AddSkillShot("SivirQ", ObjectManager.Player, new Vector2(Game.CursorPos.X + 700, Game.CursorPos.Y + 500), Utils.To2D(ObjectManager.Player.ServerPosition), Environment.TickCount, true);
                 }
+                if (args.WParam == 32)
+                {
+                    ConfigDodgeOnlyDangerous = true;
+                }
+            }
+
+            if (args.Msg == 0x101)
+            {
+                if (args.WParam == 32)
+                {
+                    ConfigDodgeOnlyDangerous = false;
+                }
+
             }
         }
 
@@ -333,11 +1033,25 @@ namespace EvadeSharp
             if (!unit.IsEnemy && !TestOnAllies)
                 return;
 
-
             /* Don't add it if it's already added */
             if (SkillShots[Name].IsActive(0))
                 return;
 
+            if (Name == "AlZaharCalloftheVoid")
+            {
+                var hDir = Utils.perpendicular(EndPos - StartPos);
+                hDir.Normalize();
+
+                AddSkillShot("AlZaharCalloftheVoidS1", unit, EndPos + 350 * hDir, EndPos - 350 * hDir, StartT, true);
+                AddSkillShot("AlZaharCalloftheVoidS2", unit, EndPos - 350 * hDir, EndPos + 350 * hDir, StartT, true);
+            }
+
+            if (Name == "ThreshE")
+            {
+                var hDir = (EndPos - StartPos);
+                hDir.Normalize();
+                StartPos = StartPos - hDir * SkillShots["ThreshE"].Range/2;
+            }
             if (FromProcessSpell)
                 for (int i = 1; i < 9; i++)
                 {
@@ -350,15 +1064,18 @@ namespace EvadeSharp
             if (Vector3.Distance(unit.ServerPosition, ObjectManager.Player.ServerPosition) <=
                 (SkillShots[Name].Range + 1500)) //Probably not needed since L# OP
             {
-                SkillShots[Name].Caster = unit; /* Not used yet */
+                SkillShots[Name].Caster = unit;
                 SkillShots[Name].StartT = StartT;
                 SkillShots[Name].StartPos = StartPos;
 
-                if ((Vector2.Distance(Utils.To2D(unit.ServerPosition), EndPos) >
-                     SkillShots[Name].Range) || SkillShots[Name].FixedRange)
+
+                Vector2 Direction = EndPos - StartPos;
+                Direction.Normalize();
+
+
+                if (((Vector2.Distance(Utils.To2D(unit.ServerPosition), EndPos) >
+                     SkillShots[Name].Range) || SkillShots[Name].FixedRange) && FromProcessSpell)
                 {
-                    Vector2 Direction = EndPos - StartPos;
-                    Direction.Normalize();
                     SkillShots[Name].EndPos = StartPos +
                                               SkillShots[Name].Range * Direction;
                 }
@@ -377,19 +1094,21 @@ namespace EvadeSharp
             }
         }
 
-
         private static void OnProcessSpell(Obj_AI_Base unit, GameObjectProcessSpellCastEventArgs Spell)
         {
-            if (SkillShots.ContainsKey(Spell.SData.Name))
-            {
-                if (Spell.SData.Name == "UFSlash")
-                    SkillShots["UFSlash"].MissileSpeed = 1500 + (int)unit.MoveSpeed;
+            
+            /*Remove Lux's E */
+            if (Spell.SData.Name == "luxlightstriketoggle" && (unit.IsEnemy || TestOnAllies) &&
+                SkillShots.ContainsKey("LuxLightStrikeKugel"))
+                SkillShots["LuxLightStrikeKugel"].StartT = 0;
 
-                AddSkillShot(Spell.SData.Name, unit, Utils.To2D(unit.ServerPosition), Utils.To2D(Spell.End),
-                    Environment.TickCount - Game.Ping / 2, true);
-            }
+            /*Remove Gragas's Q */
+            if (Spell.SData.Name == "GragasQToggle" && (unit.IsEnemy || TestOnAllies) &&
+                SkillShots.ContainsKey("GragasQ"))
+                SkillShots["GragasQ"].StartT = 0;
 
-            if (ShowSkillShotData)
+
+            if (ShowSkillShotData && unit.IsMe)
             {
                 string InfoTxt = "<b>OnProcessSpell:</b> ";
                 InfoTxt += " Name: " + Spell.SData.Name;
@@ -403,18 +1122,60 @@ namespace EvadeSharp
                 InfoTxt += " Hash: " + Spell.SData.Hash;
                 Game.PrintChat(InfoTxt);
             }
+
+            if (SkillShots.ContainsKey(Spell.SData.Name))
+            {
+                if (Spell.SData.Name == "UFSlash")
+                    SkillShots["UFSlash"].MissileSpeed = 1500 + (int)unit.MoveSpeed;
+
+                Vector2 StartPos = new Vector2();
+
+                if (SkillShots[Spell.SData.Name].FromObject != "")
+                {
+                    Game.PrintChat(SkillShots[Spell.SData.Name].FromObject);
+                    foreach (var o in ObjectManager.Get<Obj_AI_Base>())
+                    {
+                        if (o.Name == SkillShots[Spell.SData.Name].FromObject && (o.IsEnemy || TestOnAllies))
+                            StartPos = Utils.To2D(o.Position);
+                    }
+                }
+                else
+                {
+                    StartPos = Utils.To2D(unit.ServerPosition);
+                }
+
+                if (Utils.IsValidVector2(StartPos))
+                    AddSkillShot(Spell.SData.Name, unit, StartPos, Utils.To2D(Spell.End),
+                    Environment.TickCount - Game.Ping / 2, true);
+            }
+
+          
         }
 
         /* For skillshot detection when they are from fow*/
 
         private static void OnCreateMissile(GameObject sender, EventArgs args)
         {
-            return;
+
             if (sender is Obj_SpellMissile)
             {
                 var obj = (Obj_SpellMissile)sender;
 
-
+                if (ShowSkillShotData && obj.SpellCaster.IsMe)
+                {
+                    string InfoTxt = "<b>OnCreateMissile:</b> ";
+                    InfoTxt += " Name: " + obj.SData.Name;
+                    InfoTxt += " CastRange: " + obj.SData.CastRange[0];
+                    InfoTxt += " CastRadius: " + obj.SData.CastRadius[0];
+                    InfoTxt += " Linewidth: " + obj.SData.LineWidth;
+                    InfoTxt += " CastTime: " + obj.SData.SpellCastTime;
+                    InfoTxt += " TotalTime: " + obj.SData.SpellTotalTime;
+                    InfoTxt += " CastFrame: " + (obj.SData.CastFrame / 30);
+                    InfoTxt += " Speed: " + obj.SData.MissileSpeed;
+                    InfoTxt += " Hash: " + obj.SData.Hash;
+                    Game.PrintChat(InfoTxt);
+                }
+              
                 if (MissileNameToSpellName.ContainsKey(obj.SData.Name))
                 {
                     Game.PrintChat("FOW");
@@ -422,7 +1183,7 @@ namespace EvadeSharp
                     Vector3Time[] path = obj.GetPath(0.001f);
                     Vector2 MissilePos = Utils.To2D(obj.Position);
                     Vector2 EndPoint = new Vector2();
-
+                    Game.PrintChat("FOW2");
                     foreach (var p in path)
                     {
                         EndPoint = Utils.To2D(p.Position);
@@ -438,21 +1199,8 @@ namespace EvadeSharp
                             SkillShots[MissileNameToSpellName[obj.SData.Name]].MissileSpeed - Game.Ping / 2 + Environment.TickCount - SkillShots[MissileNameToSpellName[obj.SData.Name]].Delay, false);
                     }
                 }
-
-                if (ShowSkillShotData)
-                {
-                    string InfoTxt = "<b>OnCreateMissile:</b> ";
-                    InfoTxt += " Name: " + obj.SData.Name;
-                    InfoTxt += " CastRange: " + obj.SData.CastRange[0];
-                    InfoTxt += " CastRadius: " + obj.SData.CastRadius[0];
-                    InfoTxt += " Linewidth: " + obj.SData.LineWidth;
-                    InfoTxt += " CastTime: " + obj.SData.SpellCastTime;
-                    InfoTxt += " TotalTime: " + obj.SData.SpellTotalTime;
-                    InfoTxt += " CastFrame: " + (obj.SData.CastFrame / 30);
-                    InfoTxt += " Speed: " + obj.SData.MissileSpeed;
-                    InfoTxt += " Hash: " + obj.SData.Hash;
-                    Game.PrintChat(InfoTxt);
-                }
+              
+                
             }
         }
 
@@ -468,13 +1216,19 @@ namespace EvadeSharp
                 if (MissileNameToSpellName.ContainsKey(obj.SData.Name))
                 {
                     if (SkillShots[MissileNameToSpellName[obj.SData.Name]].collision)
+                    {
                         SkillShots[MissileNameToSpellName[obj.SData.Name]].StartT = 0;
+                        SkillShots[MissileNameToSpellName[obj.SData.Name]].OnCollide(obj.Position);
+                    }
                 }
             }
         }
 
         private static void OnTick(EventArgs args)
         {
+            if (!ConfigEvadingEnabled)
+                return;
+
             CantEvade = false;
             ClippedPolygon = GetClippedPolygons(); /* make the polygon each tick*/
 
@@ -525,11 +1279,14 @@ namespace EvadeSharp
 
         private static bool EvadeDashing(Dash dash)
         {
-            if (ObjectManager.Player.Spellbook.CanUseSpell(dash.Slot) != SpellState.Ready)
+            if (dash.Name != "Flash" && ObjectManager.Player.Spellbook.CanUseSpell(dash.Slot) != SpellState.Ready)
             {
                 return false;
             }
-
+            if (dash.Name == "Flash" && ObjectManager.Player.SummonerSpellbook.CanUseSpell(dash.Slot) != SpellState.Ready)
+            {
+                return false;
+            }
             List<List<Vector2>> Polygons = ClippedPolygon;
             List<Vector2> MyWaypoints = Utils.GetWaypoints(ObjectManager.Player);
             Vector2 from = MyWaypoints[MyWaypoints.Count - 1];
@@ -560,7 +1317,14 @@ namespace EvadeSharp
                 if (Candidates.Count > 0)
                 {
                     Vector2 DashPos = Utils.GetClosestVector(from, Candidates);
-                    ObjectManager.Player.Spellbook.CastSpell(dash.Slot, Utils.To3D(DashPos));
+                    if (dash.Name == "Flash")
+                    {
+                        ObjectManager.Player.SummonerSpellbook.CastSpell(dash.Slot, Utils.To3D(DashPos));
+                    }
+                    else
+                    {
+                        ObjectManager.Player.Spellbook.CastSpell(dash.Slot, Utils.To3D(DashPos));
+                    }
                     return true;
                 }
 
@@ -635,7 +1399,7 @@ namespace EvadeSharp
 
                             if ((Vector2.DistanceSquared(Utils.To2D(ObjectManager.Player.ServerPosition), Candidate) <=
                                  dash.MaxRange * dash.MaxRange) &&
-                                (dash.IsBlink && IsSafeToBlink(Candidate, dash.Delay + SmoothEvadeBufferT) ||
+                                (dash.IsBlink && IsSafeToBlink(Candidate, dash.Delay) ||
                                  !dash.IsBlink && IsSafeEvadePath(newpath, dash.Speed, dash.Delay + 200, true, true))
                                 )
                             {
@@ -648,11 +1412,14 @@ namespace EvadeSharp
 
                 if (Candidates.Count > 0)
                 {
-                    if (Candidates.Count > 0)
+                    Vector2 DashPos = Utils.GetClosestVector(from, Candidates);
+                    if (dash.Name == "Flash")
                     {
-                        Vector2 DashPos = Utils.GetClosestVector(@from, Candidates);
+                        ObjectManager.Player.SummonerSpellbook.CastSpell(dash.Slot, Utils.To3D(DashPos));
+                    }
+                    else
+                    {
                         ObjectManager.Player.Spellbook.CastSpell(dash.Slot, Utils.To3D(DashPos));
-                        return true;
                     }
                     return true;
                 }
@@ -704,10 +1471,18 @@ namespace EvadeSharp
 
                 if (Candidates.Count > 0)
                 {
-                    Vector2 DashPos = Utils.GetClosestVector(@from, Candidates);
-                    ObjectManager.Player.Spellbook.CastSpell(dash.Slot, Utils.To3D(DashPos));
+                    Vector2 DashPos = Utils.GetClosestVector(from, Candidates);
+                    if (dash.Name == "Flash")
+                    {
+                        ObjectManager.Player.SummonerSpellbook.CastSpell(dash.Slot, Utils.To3D(DashPos));
+                    }
+                    else
+                    {
+                        ObjectManager.Player.Spellbook.CastSpell(dash.Slot, Utils.To3D(DashPos));
+                    }
                     return true;
                 }
+
                 return true;
             }
 
@@ -809,6 +1584,7 @@ namespace EvadeSharp
             return (Candidates.Count > 0) ? Utils.GetClosestVector(from, Candidates) : new Vector2();
         }
 
+
         private static bool IsSafeEvadePath(List<Vector2> path, float MySpeed, int ExtraDelay, bool ToEvade, bool ToDash)
         {
             foreach (var entry in SkillShots)
@@ -892,25 +1668,33 @@ namespace EvadeSharp
                 {
                     //for(int k = 0; k < ActiveSkillshotsCount();k++)
                     {
-                        /* The skillshot imposible to evade or Remove the less dangerous skillshot  */
-                        Vector2 v = GetWalkingEvadeLocation();
-                        if (Utils.IsValidVector2(v))
+                        if (ConfigEvadeWalking)
                         {
-                            Evading = true;
-                            EvadePoint = v;
-                            return true;
-                        }
-                        if (Dashes.ContainsKey(ObjectManager.Player.BaseSkinName))
-                        {
-                            if (!EvadeDashing(Dashes[ObjectManager.Player.BaseSkinName]))
+                            Vector2 v = GetWalkingEvadeLocation();
+                            if (Utils.IsValidVector2(v))
                             {
-                                CantEvade = true;
+                                Evading = true;
+                                EvadePoint = v;
+                                return true;
                             }
-                            else
+                        }
+                        if (Dashes.ContainsKey(ObjectManager.Player.BaseSkinName) && ConfigUseDashes)
+                        {
+                            if (UseDashes(Utils.To2D(ObjectManager.Player.ServerPosition)) && EvadeDashing(Dashes[ObjectManager.Player.BaseSkinName]))
                             {
                                 return true;
                             }
                         }
+
+                        if (Dashes.ContainsKey("Flash") && ConfigUseFlash)
+                        {
+                            if (UseFlash(Utils.To2D(ObjectManager.Player.ServerPosition)) && EvadeDashing(Dashes["Flash"]))
+                            {
+                                return true;
+                            }
+                        }
+
+                        CantEvade = true;
                         return true;
                         //Replace this disabling the less important skillshots since its imposible to evade, dont forget to rebuild the clipped polygon.
                     }
@@ -944,6 +1728,9 @@ namespace EvadeSharp
 
         private static void OnSendPacket(GamePacketSendEventArgs args)
         {
+            if (!ConfigEvadingEnabled)
+                return;
+            
             /* TODO: Block S_CAST packets while evading. */
             if (args.PacketId == 113) //S_MOVE
             {
@@ -956,13 +1743,12 @@ namespace EvadeSharp
 
                 float X = BitConverter.ToSingle(b.ReadBytes(4), 0);
                 float Y = BitConverter.ToSingle(b.ReadBytes(4), 0);
-                int targetNid = BitConverter.ToInt32(b.ReadBytes(4), 0) - 1;
-
+                int targetNid = BitConverter.ToInt32(b.ReadBytes(4), 0);
 
                 if (MoveType[0] == 3 && !Evading) //Auto-attack
                 {
                     var target = ObjectManager.GetUnitByNetworkId<Obj_AI_Base>(targetNid);
-                    if (target is Obj_AI_Base && target.IsValid)
+                    if (target != null)
                     {
                         if (
                             Vector2.Distance(Utils.To2D(target.ServerPosition),
@@ -987,13 +1773,56 @@ namespace EvadeSharp
                 if (ProcessPath(Utils.GetMyPath(new Vector2(X, Y)), true)) //Actually this same path is on the packet but better calculate it again hehe.
                 {
                     args.Process = false;
+
                     //Game.PrintChat("You shall not pass!");
                 }
             }
         }
 
-        /* Returns if a point is outside the danger area */
+        /* Returns the skillshots that will hit us*/
+        private static List<SkillShot> GetActiveSkillshots(Vector2 point)
+        {
+            var Result = new List<SkillShot>();
+            foreach (var entry in SkillShots)
+            {
+                if (entry.Value.IsActive(0))
+                {
+                    if (entry.Value.IsSafe(point) == false)
+                    {
+                        Result.Add(entry.Value);
+                    }
+                }
+            }
+            return Result;
+        }
 
+        private static bool UseDashes(Vector2 point)
+        {
+            var SList = GetActiveSkillshots(point);
+            foreach (var sshot in SList)
+            {
+                if (sshot.UseDashes)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool UseFlash(Vector2 point)
+        {
+            var SList = GetActiveSkillshots(point);
+            foreach (var sshot in SList)
+            {
+                if (sshot.UseFlash)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /* Returns if a point is outside the danger area */
         private static bool IsSafe(Vector2 point)
         {
             foreach (var entry in SkillShots)
@@ -1133,6 +1962,8 @@ namespace EvadeSharp
 
         private static void OnDraw(EventArgs args)
         {
+            if (!ConfigDrawingEnabled) return;
+
             /* Draw the clipped polygon */
             foreach (var Polygon in ClippedPolygon)
             {
@@ -1170,7 +2001,7 @@ namespace EvadeSharp
             public float MaxRange;
             public SpellSlot Slot;
             public float Speed;
-
+            public string Name;
             public Dash(int delay, float speed, float maxrange, bool fixedrange, SpellSlot slot, bool isblink,
                 bool DASH_SKILLSHOT,
                 bool DASH_HERO_ENEMY,
@@ -1182,7 +2013,7 @@ namespace EvadeSharp
                 /* Set up the dash data */
                 Delay = delay;
                 Speed = speed;
-                MaxRange = delay;
+                MaxRange = maxrange;
                 FixedRange = fixedrange;
                 Slot = slot;
                 IsBlink = isblink;
@@ -1283,10 +2114,11 @@ namespace EvadeSharp
             public bool collision;
             public SkillShotType type;
             public bool LineMissileTrackUnits;
+            public string FromObject;
             /* Misc */
 
             public SkillShot(SkillShotType type, int Delay, int Range, int MissileSpeed, int Width, float Angle,
-                bool FixedRange, bool collision, bool Dangerous)
+                bool FixedRange, bool collision, bool Dangerous, bool UseDashes, bool UseFlash)
             {
                 this.type = type;
                 this.Delay = Delay;
@@ -1300,16 +2132,17 @@ namespace EvadeSharp
                 ExtraDuration = 0;
 
                 /* only for ring skillshots*/
-                RingWidth = 100;
+                RingWidth = 120;
                 this.collision = collision;
 
                 this.Dangerous = Dangerous;
 
-                Evade = true;
-                UseDashes = false;
-                UseFlash = false;
-                LineMissileTrackUnits = false;
-                DontCross = false;
+                this.Evade = true;
+                this.UseDashes = UseDashes;
+                this.UseFlash = UseFlash;
+                this.LineMissileTrackUnits = false;
+                this.DontCross = false;
+                this.FromObject = "";
             }
 
             public bool IsActive(int t)
@@ -1317,12 +2150,16 @@ namespace EvadeSharp
                 if (!Evade)
                     return false;
 
-                if (StartT + t + Delay + ExtraDuration + 1000 * Vector2.Distance(EndPos, StartPos) / MissileSpeed >
+                if (ConfigDodgeOnlyDangerous && !this.Dangerous)
+                    return false;
+
+                if (StartT + t + Delay + ExtraDuration + 1000 * Vector2.Distance(EndPos, StartPos) / MissileSpeed >=
                     Environment.TickCount)
                     return true;
 
                 return false;
             }
+
 
             /* Gets triggered when the skillshot is added. */
 
@@ -1342,6 +2179,8 @@ namespace EvadeSharp
 
                 Perpendicular = Utils.perpendicular(Direction);
 
+                if (type == SkillShotType.SKILLSHOT_NONE)
+                    this.StartT = 0;
 
                 /* Make the clipper polygons for each type of skillshot */
                 if (type == SkillShotType.SKILLSHOT_LINE)
@@ -1420,6 +2259,32 @@ namespace EvadeSharp
 
                     Polygon = Ring;
                 }
+                else if (type == SkillShotType.SKILLSHOT_TRIANGLE)
+                {
+                    var Triangle = new Path(3);
+                    //Startpos
+                    PBL = StartPos + Width * Perpendicular;
+                    PBR = StartPos - Width * Perpendicular;
+
+                    Triangle.Add(new IntPoint(PBL.X, PBL.Y));
+                    Triangle.Add(new IntPoint(PBR.X, PBR.Y));
+
+                    //EndPos
+                    Triangle.Add(new IntPoint(EndPos.X, EndPos.Y));
+
+                    Polygon = Triangle;
+                }
+            }
+
+            
+            public void OnCollide(Vector3 position)
+            {
+                /*Velkoz Q split*/
+                if (this.name == "VelkozQ")
+                {
+                    AddSkillShot("VelkozQ21", this.Caster, Utils.To2D(position), Utils.To2D(position) + this.Perpendicular, Environment.TickCount, true);
+                    AddSkillShot("VelkozQ22", this.Caster, Utils.To2D(position), Utils.To2D(position) - this.Perpendicular, Environment.TickCount, true);
+                }
             }
 
             /* Returns if a point is completely safe (Outside of the skillshot polygon) */
@@ -1468,8 +2333,9 @@ namespace EvadeSharp
 
             public bool IsSafeToBlink(Vector2 point, int t)
             {
+
                 /* As always custom case to handle the lineal skillshots that have missile */
-                if (type == SkillShotType.SKILLSHOT_LINE && MissileSpeed != int.MaxValue)
+                if (type == SkillShotType.SKILLSHOT_LINE && MissileSpeed != int.MaxValue && t != 0)
                 {
                     /* Check if we will get hit before even dashing */
                     Vector2 ProjPosBeforeDash = GetProjectilePos(0);
@@ -1487,11 +2353,13 @@ namespace EvadeSharp
                 {
                     return true;
                 }
+
                 /* TODO: Add special case when you can jump just where the missile is atm*/
                 if (IsActive(t))
                 {
                     return false;
                 }
+
                 return true;
             }
 
@@ -1729,3 +2597,4 @@ namespace EvadeSharp
         }
     }
 }
+

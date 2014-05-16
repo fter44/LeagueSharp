@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using ClipperLib;
@@ -328,6 +328,16 @@ namespace EvadeSharp
 
                 Drawing.DrawLine(p1[0], p1[1], p2[0], p2[1], 1, System.Drawing.Color.Wheat);
             }
+        }
+
+        public static bool IsChampionPresent(string basename, bool OnAllies)
+        {
+            foreach (Obj_AI_Hero hero in ObjectManager.Get<Obj_AI_Hero>())
+            {
+                if (hero.BaseSkinName == basename && (OnAllies || hero.IsEnemy))
+                    return true;
+            }
+            return false;
         }
     }
 }

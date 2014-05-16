@@ -59,7 +59,7 @@ namespace EvadeSharp
         private static readonly Dictionary<String, String> MissileNameToSpellName = new Dictionary<String, String>();
         private static readonly Dictionary<String, SkillShot> SkillShots = new Dictionary<String, SkillShot>();
         private static readonly Dictionary<String, Dash> Dashes = new Dictionary<String, Dash>();
-
+        private static int LastCTick = 0;
         private static bool Evading;
         private static bool CantEvade;
         private static Vector2 EvadePoint;
@@ -1531,7 +1531,7 @@ namespace EvadeSharp
                         }
 
 
-                        if (IsSafeEvadePath(Utils.GetMyPath(Candidate), ObjectManager.Player.MoveSpeed, Game.Ping + SmoothEvadeBufferT,
+                        if (IsSafeEvadePath(Utils.GetMyPath(Candidate), ObjectManager.Player.MoveSpeed, Game.Ping/2 + SmoothEvadeBufferT,
                             true, false))
                         {
                             Candidates.Add(Candidate);
@@ -1573,7 +1573,7 @@ namespace EvadeSharp
                         //Stop ExtraW units after exiting the polygon to avoid roundings.
                     }
 
-                    if (IsSafeEvadePath(Utils.GetMyPath(Candidate), ObjectManager.Player.MoveSpeed, Game.Ping /*+ ServerTick?*/, true,
+                    if (IsSafeEvadePath(Utils.GetMyPath(Candidate), ObjectManager.Player.MoveSpeed, Game.Ping/2 /*+ ServerTick?*/, true,
                         false))
                     {
                         Candidates.Add(Candidate);
@@ -1761,9 +1761,21 @@ namespace EvadeSharp
                     }
                 }
 
-                if (Evading)
+                if (Evading && MoveType[0] == 2)
                 {
-                    args.Process = false;
+                    if (IsSafeEvadePath(Utils.GetMyPath(new Vector2(X, Y)), ObjectManager.Player.MoveSpeed,
+                        Game.Ping/2 + SmoothEvadeBufferT/2,
+                        true, false) && IsSafeEvadePath(Utils.GetMyPath(new Vector2(X, Y)), ObjectManager.Player.MoveSpeed,
+                        Game.Ping/2,
+                        true, false)  && Environment.TickCount - LastCTick > 100)
+                    {
+                        EvadePoint = new Vector2(X, Y);
+                        LastCTick = Environment.TickCount;
+                    }
+                    else
+                    {
+                        args.Process = false;
+                    }
                     //Evading = false;
                     //OnTick(new EventArgs());
                     //Game.PrintChat("I don't want to go there, Im evading :<");

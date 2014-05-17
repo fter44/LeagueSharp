@@ -6,7 +6,6 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using ClipperLib;
 using LeagueSharp;
-using LeagueSharp.Common;
 using SharpDX;
 using Color = System.Drawing.Color;
 using Path = System.Collections.Generic.List<ClipperLib.IntPoint>;
@@ -37,7 +36,7 @@ namespace EvadeSharp
         private static bool ConfigEvadeWalking = true;
 
         /**/
-        private const int buffer = 4; /* Buffer added to all the skillshots width */
+        private const int buffer = 8; /* Buffer added to all the skillshots width */
         private const int ExtraW = 10; /* */
         private const int MinMove = 50;
         private const int Sides = 30; /* Number of sides for the circular polygons, the more the better */
@@ -45,8 +44,8 @@ namespace EvadeSharp
         private const int MissileBufferFront = 100; /* Extra distance in Front of the missile*/
         private const int EvadeMissileFrontBuffer = 10;
         private const bool TestOnAllies = false;
-        private const bool ShowSkillShotData = true;
-        private const int SearchStep = 50;
+        private const bool ShowSkillShotData = false;
+        private const int SearchStep = 40;
         private const int DashEvadeBuffer = 100;
         private const int SmoothEvadeBufferT = 400;
         private static readonly List<Vector2> DrawCircles = new List<Vector2>();
@@ -89,8 +88,6 @@ namespace EvadeSharp
 
             /* Supported SkillShot list, probably this will change in the future */
 
-
-            
             SkillShot SK;
             /* Aatrox */
             if (Utils.IsChampionPresent("Aatrox", TestOnAllies))
@@ -161,7 +158,7 @@ namespace EvadeSharp
             /* Ashe */
             if (Utils.IsChampionPresent("Ashe", TestOnAllies))
             {
-                /* W */
+                /* W 
                 SkillShots.Add("Volley", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, 0, true, false, false, false, false));
 
                 SkillShots.Add("Volley1", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, (float)Math.PI / 180 * 9.583f, true, false, false, false, false));
@@ -171,7 +168,7 @@ namespace EvadeSharp
                 SkillShots.Add("Volley4", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 9.583f, true, false, false, false, false));
                 SkillShots.Add("Volley5", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 2 * 9.583f, true, false, false, false, false));
                 SkillShots.Add("Volley6", new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1500, 35 + hitbox, -(float)Math.PI / 180 * 3 * 9.583f, true, false, false, false, false));
-
+                */
                 /* R */
                 SkillShots.Add("EnchantedCrystalArrow",
                     new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 25000, 1600, 130 + hitbox, 0, true, true, true, true, true));
@@ -200,7 +197,7 @@ namespace EvadeSharp
 
                 /* R */
                 SkillShots.Add("BraumRWrapper",
-                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 250, 1200, 1400, 115 + hitbox, 0, true, false, true, true, false));
+                    new SkillShot(SkillShotType.SKILLSHOT_LINE, 500, 1200, 1400, 115 + hitbox, 0, true, false, true, true, false));
                 MissileNameToSpellName.Add("BraumRMissile", "BraumRWrapper");
                 
             }
@@ -747,7 +744,7 @@ namespace EvadeSharp
             /*Shen*/
             if (Utils.IsChampionPresent("Shen", TestOnAllies))
             {
-                SkillShots.Add("ShenShadowDash", new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 650, 1600, 50 + hitbox, 0, false, false, false, false, false));
+                SkillShots.Add("ShenShadowDash", new SkillShot(SkillShotType.SKILLSHOT_LINE, 0, 650, 1600, 50 + hitbox, 0, false, false, true, true, false));
             }
 
             /*Shyvana*/
@@ -1156,7 +1153,7 @@ namespace EvadeSharp
 
         private static void OnCreateMissile(GameObject sender, EventArgs args)
         {
-
+            return;
             if (sender is Obj_SpellMissile)
             {
                 var obj = (Obj_SpellMissile)sender;
@@ -1370,7 +1367,7 @@ namespace EvadeSharp
                         Vector2 Dir = (B - A);
                         Dir.Normalize();
                         float dist = Vector2.Distance(A, B);
-                        int C = Math.Max(3, (int)(dist / SearchStep));
+                        int C = Math.Min(Math.Max(3, (int)(dist / SearchStep) + 1), 20);
                         for (int j = 0; j < C; j++)
                         {
                             Vector2 Candidate = A + j * Dir * dist / C;
@@ -1508,10 +1505,18 @@ namespace EvadeSharp
                     Vector2 Dir = (B - A);
                     Dir.Normalize();
                     float dist = Vector2.Distance(A, B);
-                    int C = Math.Max(3, (int)(dist / 50));
-                    for (int j = 0; j < C; j++)
+
+                    
+                    int C = Math.Min(Math.Max(3, (int)(dist / SearchStep) + 1), 20);
+                    for (int j = -1; j < C; j++)
                     {
                         Vector2 Candidate = A + j * Dir * dist / C;
+
+                        if (j == -1)
+                        {
+                            Object[] objects1 = Utils.VectorPointProjectionOnLineSegment(A, B, Utils.To2D(ObjectManager.Player.ServerPosition));
+                            Candidate = (Vector2)objects1[0];
+                        }
 
                         Vector2 PDirection = Utils.perpendicular(A - B);
                         PDirection.Normalize();
@@ -1675,6 +1680,7 @@ namespace EvadeSharp
                             {
                                 Evading = true;
                                 EvadePoint = v;
+                                LastCTick = Environment.TickCount;
                                 return true;
                             }
                         }
@@ -1764,21 +1770,19 @@ namespace EvadeSharp
                 if (Evading && MoveType[0] == 2)
                 {
                     if (IsSafeEvadePath(Utils.GetMyPath(new Vector2(X, Y)), ObjectManager.Player.MoveSpeed,
-                        Game.Ping/2 + SmoothEvadeBufferT/2,
+                        Game.Ping / 2 + SmoothEvadeBufferT,
                         true, false) && IsSafeEvadePath(Utils.GetMyPath(new Vector2(X, Y)), ObjectManager.Player.MoveSpeed,
-                        Game.Ping/2,
-                        true, false)  && Environment.TickCount - LastCTick > 100)
+                        Game.Ping / 2,
+                        true, false) && Environment.TickCount - LastCTick > 100 && IsSafe(new Vector2(X, Y)))
                     {
                         EvadePoint = new Vector2(X, Y);
                         LastCTick = Environment.TickCount;
                     }
-                    else
-                    {
-                        args.Process = false;
-                    }
-                    //Evading = false;
-                    //OnTick(new EventArgs());
-                    //Game.PrintChat("I don't want to go there, Im evading :<");
+                }
+                
+                if (Evading)
+                {
+                    args.Process = false;
                     return;
                 }
 
@@ -1788,6 +1792,8 @@ namespace EvadeSharp
 
                     //Game.PrintChat("You shall not pass!");
                 }
+
+
             }
         }
 
@@ -2144,7 +2150,7 @@ namespace EvadeSharp
                 ExtraDuration = 0;
 
                 /* only for ring skillshots*/
-                RingWidth = 120;
+                RingWidth = 160;
                 this.collision = collision;
 
                 this.Dangerous = Dangerous;
@@ -2292,7 +2298,7 @@ namespace EvadeSharp
             public void OnCollide(Vector3 position)
             {
                 /*Velkoz Q split*/
-                if (this.name == "VelkozQ")
+                if (this.name == "VelkozQ" )
                 {
                     AddSkillShot("VelkozQ21", this.Caster, Utils.To2D(position), Utils.To2D(position) + this.Perpendicular, Environment.TickCount, true);
                     AddSkillShot("VelkozQ22", this.Caster, Utils.To2D(position), Utils.To2D(position) - this.Perpendicular, Environment.TickCount, true);
